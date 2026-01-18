@@ -5,3 +5,6 @@ __pycache__/
 # Log files
 logs/
 *.log
+
+# Login state (contains sensitive credentials)
+state.json

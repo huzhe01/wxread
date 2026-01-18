@@ -125,6 +125,11 @@ class PushNotification:
 
 def push(content, method):
     """统一推送接口，支持 PushPlus、Telegram 和 WxPusher"""
+    # 如果没有配置推送方式，则跳过推送
+    if method is None or method == "":
+        logger.info("ℹ️ 未配置推送方式，跳过推送")
+        return None
+    
     notifier = PushNotification()
 
     if method == "pushplus":
