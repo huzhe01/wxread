@@ -18,10 +18,18 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)-8s - 
 logger = logging.getLogger(__name__)
 
 # 配置
-READ_MINUTES = int(os.getenv('READ_MINUTES') or 5)
+# 随机阅读时长（5-7分钟）
+READ_MINUTES = random.randint(5, 7)
 STATE_FILE = "state.json"
-BOOK_URL = os.getenv('BOOK_URL') or "https://weread.qq.com/web/reader/ce032b305a9bc1ce0b0dd2a"
 
+# 书籍列表（三体、明朝那些事儿等）
+BOOK_LIST = [
+    "https://weread.qq.com/web/reader/ce032b305a9bc1ce0b0dd2a", # 三体
+    "https://weread.qq.com/web/reader/9ad32d40727950039add092",
+    "https://weread.qq.com/web/reader/1b7320d0813ab7e55g0195ca"
+]
+# 优先使用环境变量指定的书，否则从列表中随机选择
+BOOK_URL = os.getenv('BOOK_URL') or random.choice(BOOK_LIST)
 # GitHub API 配置（用于自动更新 Secret）
 GITHUB_TOKEN = os.getenv('GH_PAT')  # Personal Access Token
 GITHUB_REPOSITORY = os.getenv('GITHUB_REPOSITORY')  # owner/repo 格式
