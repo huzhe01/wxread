@@ -18,9 +18,9 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)-8s - 
 logger = logging.getLogger(__name__)
 
 # 配置
-READ_MINUTES = int(os.getenv('READ_MINUTES', 5))
+READ_MINUTES = int(os.getenv('READ_MINUTES') or 5)
 STATE_FILE = "state.json"
-BOOK_URL = os.getenv('BOOK_URL', "https://weread.qq.com/web/reader/ce032b305a9bc1ce0b0dd2a")
+BOOK_URL = os.getenv('BOOK_URL') or "https://weread.qq.com/web/reader/ce032b305a9bc1ce0b0dd2a"
 
 # GitHub API 配置（用于自动更新 Secret）
 GITHUB_TOKEN = os.getenv('GH_PAT')  # Personal Access Token
