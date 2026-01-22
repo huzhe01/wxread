@@ -18,8 +18,8 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)-8s - 
 logger = logging.getLogger(__name__)
 
 # 配置
-# 随机阅读时长（5-7分钟）
-READ_MINUTES = random.randint(5, 7)
+# 随机阅读时长（5-10分钟）
+READ_MINUTES = random.randint(5, 10)
 STATE_FILE = "state.json"
 
 # 书籍列表（三体、明朝那些事儿等）
@@ -138,30 +138,29 @@ def read_book():
             
             logger.info("✅ 成功进入阅读页面")
             
-            # 计算需要翻页的次数
-            # 每次翻页间隔 10-15 秒，总时长 = READ_MINUTES * 60 秒
+            # 按时间控制阅读时长（确保至少达到目标时长）
+            # 每次翻页间隔 8-15 秒，总时长 = READ_MINUTES * 60 秒
             total_seconds = READ_MINUTES * 60
-            flip_interval = 12  # 平均翻页间隔
-            flip_count = total_seconds // flip_interval
-            
-            logger.info(f"⏱️ 开始阅读，预计翻页 {flip_count} 次...")
+            logger.info(f"⏱️ 开始阅读，目标时长：{READ_MINUTES} 分钟")
             
             start_time = time.time()
+            flip_count = 0
             
-            for i in range(flip_count):
-                # 模拟翻页（右箭头键）
-                page.keyboard.press("ArrowRight")
-                
-                # 随机等待时间（8-15秒）
-                wait_time = random.uniform(8, 15)
-                
+            while True:
                 elapsed = time.time() - start_time
                 remaining = total_seconds - elapsed
                 
                 if remaining <= 0:
                     break
                 
-                if (i + 1) % 10 == 0:
+                # 模拟翻页（右箭头键）
+                page.keyboard.press("ArrowRight")
+                flip_count += 1
+                
+                # 随机等待时间（8-15秒）
+                wait_time = random.uniform(8, 15)
+                
+                if flip_count % 10 == 0:
                     logger.info(f"📖 已阅读 {elapsed/60:.1f} 分钟，剩余 {remaining/60:.1f} 分钟")
                 
                 page.wait_for_timeout(int(wait_time * 1000))
