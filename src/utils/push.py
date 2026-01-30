@@ -5,7 +5,7 @@ import time
 import json
 import requests
 import logging
-from config import PUSHPLUS_TOKEN, TELEGRAM_CHAT_ID, TELEGRAM_BOT_TOKEN, WXPUSHER_SPT,SERVERCHAN_SPT
+from src.config import PUSHPLUS_TOKEN, TELEGRAM_CHAT_ID, TELEGRAM_BOT_TOKEN, WXPUSHER_SPT,SERVERCHAN_SPT
 
 logger = logging.getLogger(__name__)
 

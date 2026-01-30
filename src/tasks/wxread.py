@@ -1,18 +1,10 @@
-# read_playwright.py - Playwright 自动阅读脚本
-"""
-在 GitHub Actions 上运行，自动阅读微信读书
-支持自动更新登录状态到 GitHub Secrets
-"""
-
 import os
-import json
 import time
 import random
-import base64
 import logging
-import requests
 from playwright.sync_api import sync_playwright
-from nacl import encoding, public
+from src.utils.push import push
+from src.utils.github_api import GitHubAPI
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)-8s - %(message)s')
 logger = logging.getLogger(__name__)
@@ -30,62 +22,7 @@ BOOK_LIST = [
 ]
 # 优先使用环境变量指定的书，否则从列表中随机选择
 BOOK_URL = os.getenv('BOOK_URL') or random.choice(BOOK_LIST)
-# GitHub API 配置（用于自动更新 Secret）
-GITHUB_TOKEN = os.getenv('GH_PAT')  # Personal Access Token
-GITHUB_REPOSITORY = os.getenv('GITHUB_REPOSITORY')  # owner/repo 格式
-
-# 推送配置
 PUSH_METHOD = os.getenv('PUSH_METHOD')
-
-
-def encrypt_secret(public_key: str, secret_value: str) -> str:
-    """使用 GitHub 公钥加密 Secret 值"""
-    public_key_bytes = public.PublicKey(public_key.encode("utf-8"), encoding.Base64Encoder())
-    sealed_box = public.SealedBox(public_key_bytes)
-    encrypted = sealed_box.encrypt(secret_value.encode("utf-8"))
-    return base64.b64encode(encrypted).decode("utf-8")
-
-
-def update_github_secret(secret_name: str, secret_value: str):
-    """更新 GitHub Actions Secret"""
-    if not GITHUB_TOKEN or not GITHUB_REPOSITORY:
-        logger.warning("⚠️ 未配置 GH_PAT 或 GITHUB_REPOSITORY，跳过自动更新 Secret")
-        return False
-    
-    try:
-        headers = {
-            "Authorization": f"Bearer {GITHUB_TOKEN}",
-            "Accept": "application/vnd.github+json",
-            "X-GitHub-Api-Version": "2022-11-28"
-        }
-        
-        # 获取仓库公钥
-        key_url = f"https://api.github.com/repos/{GITHUB_REPOSITORY}/actions/secrets/public-key"
-        key_response = requests.get(key_url, headers=headers)
-        key_response.raise_for_status()
-        key_data = key_response.json()
-        
-        # 加密 Secret
-        encrypted_value = encrypt_secret(key_data["key"], secret_value)
-        
-        # 更新 Secret
-        secret_url = f"https://api.github.com/repos/{GITHUB_REPOSITORY}/actions/secrets/{secret_name}"
-        update_response = requests.put(
-            secret_url,
-            headers=headers,
-            json={
-                "encrypted_value": encrypted_value,
-                "key_id": key_data["key_id"]
-            }
-        )
-        update_response.raise_for_status()
-        
-        logger.info(f"✅ 已自动更新 GitHub Secret: {secret_name}")
-        return True
-        
-    except Exception as e:
-        logger.error(f"❌ 更新 GitHub Secret 失败: {e}")
-        return False
 
 
 def push_notification(content: str):
@@ -95,7 +32,6 @@ def push_notification(content: str):
         return
     
     try:
-        from push import push
         push(content, PUSH_METHOD)
     except Exception as e:
         logger.error(f"❌ 推送失败: {e}")
@@ -123,20 +59,41 @@ def read_book():
         page = context.new_page()
         
         try:
-            # 打开书籍页面
-            logger.info(f"🌐 正在打开书籍页面...")
-            page.goto(BOOK_URL, wait_until="networkidle", timeout=30000)
-            
-            # 等待页面加载
-            page.wait_for_timeout(3000)
-            
-            # 检查是否需要重新登录
-            if "login" in page.url.lower() or page.query_selector(".login"):
-                logger.error("❌ 登录状态已失效，需要重新扫码登录")
-                push_notification("❌ 微信读书登录状态已失效，请重新运行 login.py 扫码登录")
+            # 1. 尝试访问主页以激活/刷新 Session
+            logger.info("🏠 正在访问微信读书主页以刷新 Session...")
+            page.goto("https://weread.qq.com/", wait_until="domcontentloaded", timeout=60000)
+            page.wait_for_timeout(2000)
+
+            # 2. 严格的登录状态检查
+            # 检查 URL、特定元素以及页面文本
+            page_content = page.content()
+            if (
+                "login" in page.url.lower() 
+                or page.query_selector(".login_dialog") 
+                or "扫码登录" in page_content
+                or (page.query_selector(".navBar_link_Login") and "登录" in page.query_selector(".navBar_link_Login").inner_text())
+            ):
+                logger.error("❌ 检测到未登录状态 (在主页)")
+                push_notification("❌ 微信读书 Cookie 已失效 (IP变动或自然过期)，请重新运行 wxread_login.py")
                 return False
+
+            logger.info("✅ 主页访问成功，Session 有效")
+
+            # 3. 打开书籍页面
+            logger.info(f"🌐 正在打开书籍页面...")
+            page.goto(BOOK_URL, wait_until="domcontentloaded", timeout=60000)
+            
+            # 等待页面加载 (网络请求可能还在继续，给予足够时间渲染)
+            page.wait_for_timeout(5000)
+            
+            # 再次检查登录状态 (防止书籍页有特殊的权限验证)
+            if "login" in page.url.lower() or "扫码登录" in page.content():
+                 logger.error("❌ 检测到未登录状态 (在书籍页)")
+                 push_notification("❌ 微信读书 Cookie 已失效，请重新运行 wxread_login.py")
+                 return False
             
             logger.info("✅ 成功进入阅读页面")
+            # page.screenshot(path="debug_entered_page.png")
             
             # 按时间控制阅读时长（确保至少达到目标时长）
             # 每次翻页间隔 8-15 秒，总时长 = READ_MINUTES * 60 秒
@@ -162,6 +119,13 @@ def read_book():
                 
                 if flip_count % 10 == 0:
                     logger.info(f"📖 已阅读 {elapsed/60:.1f} 分钟，剩余 {remaining/60:.1f} 分钟")
+                    # Debug: Take screenshot to verify reading state
+                    try:
+                        # 仅在调试时开启
+                        # page.screenshot(path=f"debug_reading_{flip_count}.png")
+                        pass
+                    except:
+                        pass
                 
                 page.wait_for_timeout(int(wait_time * 1000))
             
@@ -172,11 +136,15 @@ def read_book():
             context.storage_state(path=STATE_FILE)
             logger.info(f"💾 已保存更新后的登录状态")
             
-            # 自动更新 GitHub Secret
-            with open(STATE_FILE, 'r') as f:
-                state_content = f.read()
-            update_github_secret("WXREAD_STATE", state_content)
-            
+            # 自动更新 GitHub Secret (Roll update to keep session fresh)
+            try:
+                with open(STATE_FILE, 'r') as f:
+                    state_content = f.read()
+                gh = GitHubAPI()
+                gh.update_secret("WXREAD_STATE", state_content)
+            except Exception as e:
+                 logger.warning(f"⚠️ 自动更新 Secret 失败 (可能是本地运行或网络问题): {e}")
+
             # 发送成功通知
             push_notification(f"🎉 微信读书自动阅读完成！\n⏱️ 阅读时长：{elapsed_minutes:.1f} 分钟")
             

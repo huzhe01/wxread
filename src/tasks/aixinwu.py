@@ -1,12 +1,9 @@
 import os
-import json
-import time
 import argparse
 import logging
-import base64
-import requests
 from playwright.sync_api import sync_playwright
-from nacl import encoding, public
+from src.utils.push import push
+from src.utils.github_api import GitHubAPI
 
 # Setup logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -15,8 +12,6 @@ logger = logging.getLogger(__name__)
 # Configuration
 AIXINWU_URL = "https://aixinwu.sjtu.edu.cn/"
 STATE_FILE = "aixinwu_state.json"
-GITHUB_TOKEN = os.getenv('GH_PAT')
-GITHUB_REPOSITORY = os.getenv('GITHUB_REPOSITORY')
 PUSH_METHOD = os.getenv('PUSH_METHOD')
 
 def push_notification(content: str):
@@ -24,58 +19,10 @@ def push_notification(content: str):
     if not PUSH_METHOD:
         logger.warning("⚠️ PUSH_METHOD not set, skipping notification")
         return
-    
     try:
-        from push import push
         push(content, PUSH_METHOD)
     except Exception as e:
         logger.error(f"❌ Failed to send notification: {e}")
-
-def encrypt_secret(public_key: str, secret_value: str) -> str:
-    """Encrypt secret value using GitHub public key"""
-    public_key_bytes = public.PublicKey(public_key.encode("utf-8"), encoding.Base64Encoder())
-    sealed_box = public.SealedBox(public_key_bytes)
-    encrypted = sealed_box.encrypt(secret_value.encode("utf-8"))
-    return base64.b64encode(encrypted).decode("utf-8")
-
-def update_github_secret(secret_name: str, secret_value: str):
-    """Update GitHub Actions Secret"""
-    if not GITHUB_TOKEN or not GITHUB_REPOSITORY:
-        logger.warning("⚠️ GH_PAT or GITHUB_REPOSITORY not set, skipping secret update")
-        return False
-    
-    try:
-        headers = {
-            "Authorization": f"Bearer {GITHUB_TOKEN}",
-            "Accept": "application/vnd.github+json",
-            "X-GitHub-Api-Version": "2022-11-28"
-        }
-        
-        # Get public key
-        key_url = f"https://api.github.com/repos/{GITHUB_REPOSITORY}/actions/secrets/public-key"
-        key_response = requests.get(key_url, headers=headers)
-        key_response.raise_for_status()
-        key_data = key_response.json()
-        
-        # Encrypt value
-        encrypted_value = encrypt_secret(key_data["key"], secret_value)
-        
-        # Update secret
-        secret_url = f"https://api.github.com/repos/{GITHUB_REPOSITORY}/actions/secrets/{secret_name}"
-        update_response = requests.put(
-            secret_url,
-            headers=headers,
-            json={
-                "encrypted_value": encrypted_value,
-                "key_id": key_data["key_id"]
-            }
-        )
-        update_response.raise_for_status()
-        logger.info(f"✅ Successfully updated GitHub Secret: {secret_name}")
-        return True
-    except Exception as e:
-        logger.error(f"❌ Failed to update GitHub Secret: {e}")
-        return False
 
 def run_login():
     """Interactive login to save state"""
@@ -143,11 +90,10 @@ def run_verify():
              logger.error("❌ Redirected to JAccount! Login state is INVALID or EXPIRED.")
         else:
              logger.info(f"✅ Stayed on {page.url}. Login state appears VALID.")
-             # Optionally check for a 'Logout' button or user name if we knew the selector
         
         logger.info("Taking screenshot to 'verify_state.png'...")
         page.screenshot(path="verify_state.png")
-        page.wait_for_timeout(1000) # give usage chance to see
+        page.wait_for_timeout(1000) 
         browser.close()
 
 def run_checkin():
@@ -171,9 +117,6 @@ def run_checkin():
             page.goto(AIXINWU_URL)
             page.wait_for_load_state("networkidle")
             
-            # Take screenshot for debug
-            # page.screenshot(path="debug_home.png")
-            
             # Check if logged in (look for login button or user profile)
             # User confirmed that just visiting the page is enough for check-in
             if "jaccount" in page.url:
@@ -189,7 +132,9 @@ def run_checkin():
             # Update GitHub Secret
             with open(STATE_FILE, 'r') as f:
                 state_content = f.read()
-            update_github_secret("AIXINWU_STATE", state_content)
+            
+            gh = GitHubAPI()
+            gh.update_secret("AIXINWU_STATE", state_content)
             
         except Exception as e:
             logger.error(f"❌ Check-in failed: {e}")

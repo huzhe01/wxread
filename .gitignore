@@ -8,3 +8,7 @@ logs/
 
 # Login state (contains sensitive credentials)
 state.json
+*_state.json
+
+# Debug images
+*.png

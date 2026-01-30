@@ -47,4 +47,4 @@ jobs:
         PUSH_METHOD: ${{ secrets.PUSH_METHOD }}
         PUSH_KEY: ${{ secrets.PUSH_KEY }}
       run: |
-        python aixinwu.py checkin
+        python -m src.tasks.aixinwu checkin
